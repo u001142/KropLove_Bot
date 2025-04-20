@@ -1,1 +1,1 @@
-# KropLove_Bot
+# KropLove_Bot - Telegram бот знайомств
