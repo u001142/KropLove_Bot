@@ -1,1 +1,21 @@
-
+{
+  "start": "Welcome! Please choose your language:",
+  "language_selected": "You selected English.",
+  "enter_name": "What's your name?",
+  "enter_age": "How old are you?",
+  "enter_gender": "Select your gender:",
+  "enter_city": "Which city are you from?",
+  "enter_bio": "Write a short description about yourself:",
+  "send_photo": "Send your photo:",
+  "profile_saved": "Your profile has been saved!",
+  "view_profiles": "Here are people nearby:",
+  "like_sent": "You liked this person.",
+  "match_found": "It's a match! You can now chat anonymously.",
+  "chat_started": "You are now chatting. Type /stop to end the chat.",
+  "chat_ended": "Chat has been ended.",
+  "report_sent": "Your report has been submitted. Thank you!",
+  "premium_active": "Your premium account is active.",
+  "premium_required": "This feature is available for premium users.",
+  "referral_info": "Invite 10 friends and get a week of Premium for free!",
+  "unknown_command": "I didn't understand that command."
+}
