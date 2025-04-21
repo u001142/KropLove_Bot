@@ -94,12 +94,12 @@ async def telegram_webhook(request: Request):
         }
         await send_message(chat_id, "Обери стать:", keyboard)
         return {"ok": True}
-
+        
     if state == "awaiting_gender":
-if text not in ["👨", "👩"]:
-    await send_message(chat_id, "Оберіть стать: 👨 або 👩")
-    return {"ok": True}
-user_states[chat_id]["gender"] = "ч" if text == "👨" else "ж"
+        if text not in ["👨", "👩"]:
+            await send_message(chat_id, "Оберіть стать: 👨 або 👩")
+            return {"ok": True}
+        user_states[chat_id]["gender"] = "ч" if text == "👨" else "ж"
         user_states[chat_id]["state"] = "awaiting_city"
         await send_message(chat_id, "З якого ти міста?", {"remove_keyboard": True})
         return {"ok": True}
