@@ -87,11 +87,12 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
         user_states[chat_id]["age"] = int(text)
         user_states[chat_id]["state"] = "awaiting_gender"
-        keyboard = {
-            "keyboard": [[{"text": "ч"}, {"text": "ж"}]],
-            "resize_keyboard": True,
-            "one_time_keyboard": True
-        }
+keyboard = {
+    "keyboard": [[{"text": "👨"}, {"text": "👩"}]],
+    "resize_keyboard": True,
+    "one_time_keyboard": True
+}
+
         await send_message(chat_id, "Обери стать:", keyboard)
         return {"ok": True}
 
