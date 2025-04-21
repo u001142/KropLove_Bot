@@ -16,6 +16,8 @@ LANGUAGES = {
     "English 🇬🇧": "en"
 }
 
+user_states = {}  # тимчасове збереження стану користувача
+
 @app.get("/")
 def read_root():
     return {"message": "KropLove_Bot is running!"}
@@ -25,14 +27,14 @@ def read_root():
 async def telegram_webhook(req: Request):
     data = await req.json()
     message = data.get("message")
-    
+
     if not message:
         return {"ok": True}
 
     chat_id = message["chat"]["id"]
     text = message.get("text", "")
 
-    # Якщо це /start
+    # /start — вибір мови
     if text == "/start":
         keyboard = {
             "keyboard": [[{"text": lang}] for lang in LANGUAGES.keys()],
@@ -42,15 +44,28 @@ async def telegram_webhook(req: Request):
         await send_message(chat_id, "Привіт! Обери мову:", keyboard)
         return {"ok": True}
 
-    # Якщо це вибір мови
+    # Обробка вибору мови
     if text in LANGUAGES:
         lang_code = LANGUAGES[text]
-        await send_message(chat_id, f"Ти обрав {text} ({lang_code})")
-        # Тут можна зберегти мову в БД
+        user_states[chat_id] = {"lang": lang_code, "state": "awaiting_name"}
+
+        # Прибираємо клавіатуру
+        remove_keyboard = { "remove_keyboard": True }
+
+        await send_message(chat_id, f"Ти обрав {text}.", remove_keyboard)
+        await send_message(chat_id, "Як тебе звати?")
+        return {"ok": True}
+
+    # Реєстрація: ім’я
+    if chat_id in user_states and user_states[chat_id]["state"] == "awaiting_name":
+        user_states[chat_id]["name"] = text
+        user_states[chat_id]["state"] = "done"
+        await send_message(chat_id, f"Дякую, {text}! Твоє ім’я збережено.")
+        # Тут можна перейти до наступного кроку анкети (вік, стать і т.д.)
         return {"ok": True}
 
     # Повідомлення за замовчуванням
-    await send_message(chat_id, "Натисни /start, щоб обрати мову.")
+    await send_message(chat_id, "Натисни /start, щоб почати.")
     return {"ok": True}
 
 
@@ -66,4 +81,4 @@ async def send_message(chat_id: int, text: str, reply_markup: dict = None):
         await client.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json=payload
-        ) 
+        )
