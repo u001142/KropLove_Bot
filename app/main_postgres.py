@@ -9,7 +9,7 @@ load_dotenv()
 
 app = FastAPI()
 
-# DB config
+# DB setup
 DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -41,40 +41,21 @@ LANGUAGES = {
 user_states = {}
 
 @app.get("/")
-def read_root():
-    return {"message": "KropLove_Bot is running!"}
-
+def root():
+    return {"message": "KropLove_Bot is live!"}
 
 @app.post(WEBHOOK_SECRET_PATH)
-async def telegram_webhook(req: Request):
-    data = await req.json()
+async def telegram_webhook(request: Request):
+    data = await request.json()
     message = data.get("message")
-
     if not message:
         return {"ok": True}
 
     chat_id = message["chat"]["id"]
-    text = message.get("text", "")
+    text = message.get("text")
     photo = message.get("photo")
 
-    
-    if text == "/edit":
-        session = SessionLocal()
-        user = session.query(User).filter_by(telegram_id=chat_id).first()
-        session.close()
-
-        if not user:
-            await send_message(chat_id, "Твоєї анкети ще немає. Спочатку створи її через /start.")
-            return {"ok": True}
-
-        user_states[chat_id] = {
-            "lang": user.language,
-            "state": "awaiting_name"
-        }
-
-        await send_message(chat_id, "Добре, почнемо редагування анкети.")
-        await send_message(chat_id, "Як тебе звати?")
-        return {"ok": True}
+    state = user_states.get(chat_id, {}).get("state")
 
     if text == "/start":
         keyboard = {
@@ -85,6 +66,19 @@ async def telegram_webhook(req: Request):
         await send_message(chat_id, "Привіт! Обери мову:", keyboard)
         return {"ok": True}
 
+    if text == "/edit":
+        with SessionLocal() as session:
+            user = session.query(User).filter_by(telegram_id=chat_id).first()
+
+        if not user:
+            await send_message(chat_id, "Твоєї анкети ще немає. Спочатку створи її через /start.")
+            return {"ok": True}
+
+        user_states[chat_id] = {"lang": user.language, "state": "awaiting_name"}
+        await send_message(chat_id, "Добре, почнемо редагування анкети.")
+        await send_message(chat_id, "Як тебе звати?")
+        return {"ok": True}
+
     if text in LANGUAGES:
         lang_code = LANGUAGES[text]
         user_states[chat_id] = {"lang": lang_code, "state": "awaiting_name"}
@@ -92,7 +86,9 @@ async def telegram_webhook(req: Request):
         await send_message(chat_id, "Як тебе звати?")
         return {"ok": True}
 
-    state = user_states.get(chat_id, {}).get("state")
+    if not text and state != "awaiting_photo":
+        await send_message(chat_id, "Будь ласка, введи текст.")
+        return {"ok": True}
 
     if state == "awaiting_name":
         user_states[chat_id]["name"] = text
@@ -102,8 +98,8 @@ async def telegram_webhook(req: Request):
         return {"ok": True}
 
     if state == "awaiting_age":
-        if not text.isdigit():
-            await send_message(chat_id, "Введи, будь ласка, число.")
+        if not text.isdigit() or not (18 <= int(text) <= 99):
+            await send_message(chat_id, "Введи, будь ласка, вік від 18 до 99.")
             return {"ok": True}
         user_states[chat_id]["age"] = int(text)
         user_states[chat_id]["state"] = "awaiting_gender"
@@ -140,11 +136,12 @@ async def telegram_webhook(req: Request):
         if not photo:
             await send_message(chat_id, "Будь ласка, надішли фото.")
             return {"ok": True}
-        user_states[chat_id]["photo_file_id"] = photo[-1]["file_id"]
+        largest = max(photo, key=lambda x: x["file_size"])
+        file_id = largest["file_id"]
+        user_states[chat_id]["photo_file_id"] = file_id
         user_states[chat_id]["state"] = "done"
 
-        # Save to DB
-        session = SessionLocal()
+        # Збереження в БД
         data = user_states[chat_id]
         user = User(
             telegram_id=chat_id,
@@ -156,16 +153,16 @@ async def telegram_webhook(req: Request):
             photo_file_id=data["photo_file_id"],
             language=data["lang"]
         )
-        session.merge(user)
-        session.commit()
-        session.close()
+        with SessionLocal() as session:
+            session.merge(user)
+            session.commit()
 
         await send_message(chat_id, "Дякую! Твоя анкета збережена.")
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
-        await send_photo(chat_id, data["photo_file_id"], caption)
+        await send_photo(chat_id, file_id, caption)
         return {"ok": True}
 
-    await send_message(chat_id, "Натисни /start, щоб почати знову.")
+    await send_message(chat_id, "Натисни /start, щоб почати спочатку.")
     return {"ok": True}
 
 
@@ -179,4 +176,4 @@ async def send_message(chat_id: int, text: str, reply_markup: dict = None):
 async def send_photo(chat_id: int, file_id: str, caption: str):
     payload = {"chat_id": chat_id, "photo": file_id, "caption": caption}
     async with httpx.AsyncClient() as client:
-        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload)
+        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload) 
