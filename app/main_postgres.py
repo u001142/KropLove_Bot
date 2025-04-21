@@ -32,12 +32,6 @@ Base.metadata.create_all(bind=engine)
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_SECRET_PATH = "/webhook"
 
-LANGUAGES = {
-    "Українська 🇺🇦": "uk",
-    "Русский 🇷🇺": "ru",
-    "English 🇬🇧": "en"
-}
-
 user_states = {}
 
 @app.get("/")
@@ -58,12 +52,9 @@ async def telegram_webhook(request: Request):
     state = user_states.get(chat_id, {}).get("state")
 
     if text == "/start":
-        keyboard = {
-            "keyboard": [[{"text": lang}] for lang in LANGUAGES.keys()],
-            "resize_keyboard": True,
-            "one_time_keyboard": True
-        }
-        await send_message(chat_id, "Привіт! Обери мову:", keyboard)
+        user_states[chat_id] = {"lang": "uk", "state": "awaiting_name"}
+        await send_message(chat_id, "Привіт! Давай створимо твою анкету.")
+        await send_message(chat_id, "Як тебе звати?")
         return {"ok": True}
 
     if text == "/edit":
@@ -76,13 +67,6 @@ async def telegram_webhook(request: Request):
 
         user_states[chat_id] = {"lang": user.language, "state": "awaiting_name"}
         await send_message(chat_id, "Добре, почнемо редагування анкети.")
-        await send_message(chat_id, "Як тебе звати?")
-        return {"ok": True}
-
-    if text in LANGUAGES:
-        lang_code = LANGUAGES[text]
-        user_states[chat_id] = {"lang": lang_code, "state": "awaiting_name"}
-        await send_message(chat_id, f"Ти обрав {text}.", {"remove_keyboard": True})
         await send_message(chat_id, "Як тебе звати?")
         return {"ok": True}
 
@@ -141,7 +125,6 @@ async def telegram_webhook(request: Request):
         user_states[chat_id]["photo_file_id"] = file_id
         user_states[chat_id]["state"] = "done"
 
-        # Збереження в БД
         data = user_states[chat_id]
         user = User(
             telegram_id=chat_id,
@@ -151,7 +134,7 @@ async def telegram_webhook(request: Request):
             city=data["city"],
             bio=data["bio"],
             photo_file_id=data["photo_file_id"],
-            language=data["lang"]
+            language="uk"
         )
         with SessionLocal() as session:
             session.merge(user)
@@ -176,4 +159,4 @@ async def send_message(chat_id: int, text: str, reply_markup: dict = None):
 async def send_photo(chat_id: int, file_id: str, caption: str):
     payload = {"chat_id": chat_id, "photo": file_id, "caption": caption}
     async with httpx.AsyncClient() as client:
-        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload) 
+        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload)
