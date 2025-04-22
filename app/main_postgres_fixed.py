@@ -199,7 +199,3 @@ async def send_photo(chat_id: int, file_id: str, caption: str):
     payload = {"chat_id": chat_id, "photo": file_id, "caption": caption}
     async with httpx.AsyncClient() as client:
         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload)
-
-
-Ось повністю готовий і робочий код з інтегрованим меню користувача, яке включає всі потрібні пункти. Якщо потрібно — можемо додати функціональність для кожної кнопки (наприклад, перегляд анкет або реалізацію чату). Готовий продовжити?
-
