@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Request
 import httpx
 import os
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, BigInteger
+from sqlalchemy import create_engine, Column, Integer, String, BigInteger, DateTime, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 load_dotenv()
@@ -26,24 +27,17 @@ class User(Base):
     bio = Column(String)
     photo_file_id = Column(String)
     language = Column(String)
+    referrer_id = Column(BigInteger, nullable=True)
+    premium_until = Column(DateTime, nullable=True)
 
 Base.metadata.create_all(bind=engine)
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_SECRET_PATH = "/webhook"
+ADMINS = [5347187083]  # ← Вкажи свій Telegram ID
 
 user_states = {}
 admin_states = {}
-ADMINS = [5347187083]  # Замінити на свій Telegram ID
-
-user_menu = {
-    "keyboard": [
-        [{"text": "Моя анкета"}, {"text": "Редагувати анкету"}],
-        [{"text": "Перегляд анкет"}, {"text": "Почати чат"}],
-        [{"text": "Отримати преміум"}, {"text": "Допомога"}]
-    ],
-    "resize_keyboard": True
-}
 
 @app.get("/")
 def root():
@@ -60,93 +54,44 @@ async def telegram_webhook(request: Request):
     text = message.get("text")
     photo = message.get("photo")
 
-    # ======= АДМІН-МЕНЮ =======
-    if chat_id in ADMINS:
-        admin_state = admin_states.get(chat_id)
+    # Referral tracking
+    if "ref=" in str(data.get("message")) and chat_id not in user_states:
+        entities = message.get("entities", [])
+        for entity in entities:
+            if entity.get("type") == "bot_command":
+                offset = entity["offset"]
+                length = entity["length"]
+                command = text[offset:offset+length]
+                if command.startswith("/start") and " " in text:
+                    ref_id = text.split()[1].replace("ref=", "")
+                    user_states[chat_id] = {"referrer_id": int(ref_id)}
 
-        if text == "/admin":
-            keyboard = {
-                "keyboard": [[
-                    {"text": "🧾 Перелік анкет"},
-                    {"text": "❌ Видалити анкету"}
-                ], [
-                    {"text": "📢 Розсилка"}
-                ]],
-                "resize_keyboard": True
-            }
-            await send_message(chat_id, "Вибери дію:", keyboard)
-            return {"ok": True}
-
-        if text == "🧾 Перелік анкет":
-            with SessionLocal() as session:
-                users = session.query(User).order_by(User.id.desc()).limit(10).all()
-                if not users:
-                    await send_message(chat_id, "База порожня.")
-                else:
-                    for user in users:
-                        await send_message(chat_id, f"{user.name}, {user.age} років, {user.city}\nTelegram ID: {user.telegram_id}")
-            return {"ok": True}
-
-        if text == "❌ Видалити анкету":
-            admin_states[chat_id] = "awaiting_delete"
-            await send_message(chat_id, "Введи telegram_id користувача для видалення:")
-            return {"ok": True}
-
-        if admin_state == "awaiting_delete":
-            if not text.isdigit():
-                await send_message(chat_id, "❗ Введи правильний telegram_id")
+    # Команда /refer
+    if text == "/refer":
+        with SessionLocal() as session:
+            user = session.query(User).filter_by(telegram_id=chat_id).first()
+            if not user:
+                await send_message(chat_id, "Спочатку створи анкету через /start")
                 return {"ok": True}
-            target_id = int(text)
-            with SessionLocal() as session:
-                user = session.query(User).filter_by(telegram_id=target_id).first()
-                if not user:
-                    await send_message(chat_id, "Користувача не знайдено.")
-                else:
-                    session.delete(user)
-                    session.commit()
-                    await send_message(chat_id, f"✅ Користувача {target_id} видалено.")
-            admin_states[chat_id] = None
-            return {"ok": True}
 
-        if text == "📢 Розсилка":
-            admin_states[chat_id] = "awaiting_broadcast"
-            await send_message(chat_id, "Введи текст розсилки:")
-            return {"ok": True}
+            referred = session.query(User).filter_by(referrer_id=chat_id).count()
+            now = datetime.utcnow()
+            premium_status = "Немає"
+            if user.premium_until and user.premium_until > now:
+                days_left = (user.premium_until - now).days
+                premium_status = f"до {user.premium_until.date()} ({days_left} днів залишилось)"
 
-        if admin_state == "awaiting_broadcast":
-            with SessionLocal() as session:
-                users = session.query(User).all()
-                for user in users:
-                    try:
-                        await send_message(user.telegram_id, text)
-                    except Exception:
-                        continue
-            await send_message(chat_id, "✅ Повідомлення надіслано всім користувачам.")
-            admin_states[chat_id] = None
-            return {"ok": True}
+            link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start=ref={chat_id}"
+            await send_message(chat_id, f"Запрошено: {referred} користувачів\nПреміум: {premium_status}\n\nТвоє реферальне посилання:\n{link}")
+        return {"ok": True}
 
-    # ======= КОРИСТУВАЧ =======
-
+    # ======= СТВОРЕННЯ АНКЕТИ =======
     state = user_states.get(chat_id, {}).get("state")
 
     if text == "/start":
         user_states[chat_id] = {"lang": "uk", "state": "awaiting_name"}
         await send_message(chat_id, "Привіт! Давай створимо твою анкету.")
         await send_message(chat_id, "Як тебе звати?")
-        return {"ok": True}
-
-    if text == "Редагувати анкету":
-        with SessionLocal() as session:
-            user = session.query(User).filter_by(telegram_id=chat_id).first()
-        if not user:
-            await send_message(chat_id, "Анкету не знайдено. Натисни /start.")
-            return {"ok": True}
-        user_states[chat_id] = {"lang": user.language, "state": "awaiting_name"}
-        await send_message(chat_id, "Введи ім’я:")
-        return {"ok": True}
-
-    if not text and state != "awaiting_photo":
-        await send_message(chat_id, "Будь ласка, введи текст.")
         return {"ok": True}
 
     if state == "awaiting_name":
@@ -197,31 +142,45 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
         largest = max(photo, key=lambda x: x["file_size"])
         file_id = largest["file_id"]
-        user_states[chat_id]["photo_file_id"] = file_id
-        user_states[chat_id]["state"] = "done"
 
         data = user_states[chat_id]
-        user = User(
-            telegram_id=chat_id,
-            name=data["name"],
-            age=data["age"],
-            gender=data["gender"],
-            city=data["city"],
-            bio=data["bio"],
-            photo_file_id=data["photo_file_id"],
-            language="uk"
-        )
+        referrer_id = user_states.get(chat_id, {}).get("referrer_id")
+
         with SessionLocal() as session:
+            user = User(
+                telegram_id=chat_id,
+                name=data["name"],
+                age=data["age"],
+                gender=data["gender"],
+                city=data["city"],
+                bio=data["bio"],
+                photo_file_id=file_id,
+                language="uk",
+                referrer_id=referrer_id
+            )
             session.merge(user)
             session.commit()
 
-        await send_message(chat_id, "Анкета оновлена.", user_menu)
+            # Нарахування преміуму рефереру
+            if referrer_id:
+                count = session.query(User).filter_by(referrer_id=referrer_id).count()
+                if count % 10 == 0:
+                    ref_user = session.query(User).filter_by(telegram_id=referrer_id).first()
+                    if ref_user:
+                        if ref_user.premium_until and ref_user.premium_until > datetime.utcnow():
+                            ref_user.premium_until += timedelta(days=7)
+                        else:
+                            ref_user.premium_until = datetime.utcnow() + timedelta(days=7)
+                        session.commit()
+
+        await send_message(chat_id, "Дякую! Твоя анкета збережена.")
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
         await send_photo(chat_id, file_id, caption)
         return {"ok": True}
 
-    await send_message(chat_id, "Натисни /start, щоб почати спочатку.")
+    await send_message(chat_id, "Натисни /start або /refer.")
     return {"ok": True}
+
 
 async def send_message(chat_id: int, text: str, reply_markup: dict = None):
     payload = {"chat_id": chat_id, "text": text}
