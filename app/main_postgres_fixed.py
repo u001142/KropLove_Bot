@@ -1,4 +1,9 @@
-from fastapi import FastAPI, Request import httpx import os from dotenv import load_dotenv from sqlalchemy import create_engine, Column, Integer, String, BigInteger from sqlalchemy.orm import sessionmaker, declarative_base
+from fastapi import FastAPI, Request
+import httpx
+import os
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, Column, Integer, String, BigInteger
+from sqlalchemy.orm import sessionmaker, declarative_base
 
 load_dotenv()
 
