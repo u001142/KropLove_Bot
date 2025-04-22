@@ -34,7 +34,16 @@ WEBHOOK_SECRET_PATH = "/webhook"
 
 user_states = {}
 admin_states = {}
-ADMINS = [5347187083]  # Вкажи свій Telegram ID
+ADMINS = [5347187083]  # Замінити на свій Telegram ID
+
+user_menu = {
+    "keyboard": [
+        [{"text": "Моя анкета"}, {"text": "Редагувати анкету"}],
+        [{"text": "Перегляд анкет"}, {"text": "Почати чат"}],
+        [{"text": "Отримати преміум"}, {"text": "Допомога"}]
+    ],
+    "resize_keyboard": True
+}
 
 @app.get("/")
 def root():
@@ -52,7 +61,6 @@ async def telegram_webhook(request: Request):
     photo = message.get("photo")
 
     # ======= АДМІН-МЕНЮ =======
-
     if chat_id in ADMINS:
         admin_state = admin_states.get(chat_id)
 
@@ -117,7 +125,7 @@ async def telegram_webhook(request: Request):
             admin_states[chat_id] = None
             return {"ok": True}
 
-    # ======= КІНЕЦЬ АДМІН-МЕНЮ =======
+    # ======= КОРИСТУВАЧ =======
 
     state = user_states.get(chat_id, {}).get("state")
 
@@ -127,17 +135,14 @@ async def telegram_webhook(request: Request):
         await send_message(chat_id, "Як тебе звати?")
         return {"ok": True}
 
-    if text == "/edit":
+    if text == "Редагувати анкету":
         with SessionLocal() as session:
             user = session.query(User).filter_by(telegram_id=chat_id).first()
-
         if not user:
-            await send_message(chat_id, "Твоєї анкети ще немає. Спочатку створи її через /start.")
+            await send_message(chat_id, "Анкету не знайдено. Натисни /start.")
             return {"ok": True}
-
         user_states[chat_id] = {"lang": user.language, "state": "awaiting_name"}
-        await send_message(chat_id, "Добре, почнемо редагування анкети.")
-        await send_message(chat_id, "Як тебе звати?")
+        await send_message(chat_id, "Введи ім’я:")
         return {"ok": True}
 
     if not text and state != "awaiting_photo":
@@ -147,7 +152,7 @@ async def telegram_webhook(request: Request):
     if state == "awaiting_name":
         user_states[chat_id]["name"] = text
         user_states[chat_id]["state"] = "awaiting_age"
-        await send_message(chat_id, f"Дякую, {text}! Твоє ім'я збережено.")
+        await send_message(chat_id, f"Дякую, {text}! Твоє ім’я збережено.")
         await send_message(chat_id, "Скільки тобі років?")
         return {"ok": True}
 
@@ -210,20 +215,22 @@ async def telegram_webhook(request: Request):
             session.merge(user)
             session.commit()
 
+        await send_message(chat_id, "Анкета оновлена.", user_menu)
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
         await send_photo(chat_id, file_id, caption)
+        return {"ok": True}
 
-        # показати меню для адміна
-        if chat_id in ADMINS:
-            keyboard = {
-                "keyboard": [[
-                    {"text": "🧾 Перелік анкет"},
-                    {"text": "❌ Видалити анкету"}
-                ], [
-                    {"text": "📢 Розсилка"}
-                ]],
-                "resize_keyboard": True
-            }
-            await send_message(chat_id, "Анкета оновлена. Обери дію:", keyboard)
-        else:
-            await send_message(chat_id, "
+    await send_message(chat_id, "Натисни /start, щоб почати спочатку.")
+    return {"ok": True}
+
+async def send_message(chat_id: int, text: str, reply_markup: dict = None):
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    async with httpx.AsyncClient() as client:
+        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
+
+async def send_photo(chat_id: int, file_id: str, caption: str):
+    payload = {"chat_id": chat_id, "photo": file_id, "caption": caption}
+    async with httpx.AsyncClient() as client:
+        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload)
