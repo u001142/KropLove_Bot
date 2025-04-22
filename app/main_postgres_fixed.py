@@ -51,6 +51,9 @@ async def telegram_webhook(request: Request):
     text = message.get("text")
     photo = message.get("photo")
 
+    if user_states.get(chat_id, {}).get("state") == "done":
+        return {"ok": True}
+
     # ======= МЕНЮ КОРИСТУВАЧА =======
     if text == "/start":
         keyboard = {
@@ -166,7 +169,8 @@ async def telegram_webhook(request: Request):
         largest = max(photo, key=lambda x: x["file_size"])
         file_id = largest["file_id"]
         data = user_states[chat_id]
-        user = User(
+
+        is_update = save_or_update_user(
             telegram_id=chat_id,
             name=data["name"],
             age=data["age"],
@@ -176,17 +180,42 @@ async def telegram_webhook(request: Request):
             photo_file_id=file_id,
             language="uk"
         )
-        with SessionLocal() as session:
-            session.merge(user)
-            session.commit()
-        await send_message(chat_id, "Дякую! Твоя анкета збережена.")
+
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
         await send_photo(chat_id, file_id, caption)
+        await send_message(chat_id, "Анкета оновлена." if is_update else "Анкета створена.")
         user_states[chat_id] = {"state": "done"}
         return {"ok": True}
 
     await send_message(chat_id, "Натисни /start, щоб почати спочатку.")
     return {"ok": True}
+
+def save_or_update_user(telegram_id, name, age, gender, city, bio, photo_file_id, language):
+    with SessionLocal() as session:
+        user = session.query(User).filter_by(telegram_id=telegram_id).first()
+        is_update = bool(user)
+        if user:
+            user.name = name
+            user.age = age
+            user.gender = gender
+            user.city = city
+            user.bio = bio
+            user.photo_file_id = photo_file_id
+            user.language = language
+        else:
+            user = User(
+                telegram_id=telegram_id,
+                name=name,
+                age=age,
+                gender=gender,
+                city=city,
+                bio=bio,
+                photo_file_id=photo_file_id,
+                language=language
+            )
+            session.add(user)
+        session.commit()
+        return is_update
 
 async def send_message(chat_id: int, text: str, reply_markup: dict = None):
     payload = {"chat_id": chat_id, "text": text}
