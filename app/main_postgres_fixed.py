@@ -3,7 +3,7 @@ import httpx
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, BigInteger, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, BigInteger, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 load_dotenv()
@@ -15,6 +15,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
 
 class User(Base):
     __tablename__ = "users_v2"
@@ -29,19 +30,23 @@ class User(Base):
     language = Column(String)
     referrer_id = Column(BigInteger, nullable=True)
     premium_until = Column(DateTime, nullable=True)
+    referrals_count = Column(Integer, default=0)
+
 
 Base.metadata.create_all(bind=engine)
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_SECRET_PATH = "/webhook"
-ADMINS = [5347187083]  # ← Вкажи свій Telegram ID
+ADMINS = [5347187083]
 
 user_states = {}
 admin_states = {}
 
+
 @app.get("/")
 def root():
     return {"message": "KropLove_Bot is live!"}
+
 
 @app.post(WEBHOOK_SECRET_PATH)
 async def telegram_webhook(request: Request):
@@ -61,12 +66,12 @@ async def telegram_webhook(request: Request):
             if entity.get("type") == "bot_command":
                 offset = entity["offset"]
                 length = entity["length"]
-                command = text[offset:offset+length]
+                command = text[offset:offset + length]
                 if command.startswith("/start") and " " in text:
                     ref_id = text.split()[1].replace("ref=", "")
                     user_states[chat_id] = {"referrer_id": int(ref_id)}
 
-    # Команда /refer
+    # /refer
     if text == "/refer":
         with SessionLocal() as session:
             user = session.query(User).filter_by(telegram_id=chat_id).first()
@@ -82,10 +87,11 @@ async def telegram_webhook(request: Request):
                 premium_status = f"до {user.premium_until.date()} ({days_left} днів залишилось)"
 
             link = f"https://t.me/{os.getenv('BOT_USERNAME')}?start=ref={chat_id}"
-            await send_message(chat_id, f"Запрошено: {referred} користувачів\nПреміум: {premium_status}\n\nТвоє реферальне посилання:\n{link}")
+            await send_message(chat_id,
+                               f"Запрошено: {referred} користувачів\nПреміум: {premium_status}\n\nТвоє реферальне посилання:\n{link}")
         return {"ok": True}
 
-    # ======= СТВОРЕННЯ АНКЕТИ =======
+    # ===== СТВОРЕННЯ АНКЕТИ =====
     state = user_states.get(chat_id, {}).get("state")
 
     if text == "/start":
@@ -145,31 +151,31 @@ async def telegram_webhook(request: Request):
 
         data = user_states[chat_id]
         referrer_id = user_states.get(chat_id, {}).get("referrer_id")
-        
-with SessionLocal() as session:
-    user = User(
-        telegram_id=chat_id,
-        name=data["name"],
-        age=data["age"],
-        gender=data["gender"],
-        city=data["city"],
-        bio=data["bio"],
-        photo_file_id=data["photo_file_id"],
-        language="uk",
-        referrer_id=referrer_id
-    )
-    session.merge(user)
 
-    # Нарахування преміуму рефереру
-    if referrer_id:
-        referrer = session.query(User).filter_by(telegram_id=referrer_id).first()
-        if referrer:
-            referrer.referrals_count += 1
-            if referrer.referrals_count % 10 == 0:
-                referrer.premium_until = datetime.utcnow() + timedelta(days=7)
-            session.merge(referrer)
+        with SessionLocal() as session:
+            user = User(
+                telegram_id=chat_id,
+                name=data["name"],
+                age=data["age"],
+                gender=data["gender"],
+                city=data["city"],
+                bio=data["bio"],
+                photo_file_id=file_id,
+                language="uk",
+                referrer_id=referrer_id
+            )
+            session.merge(user)
 
-    session.commit()
+            # Преміум за 10 запрошень
+            if referrer_id:
+                referrer = session.query(User).filter_by(telegram_id=referrer_id).first()
+                if referrer:
+                    referrer.referrals_count += 1
+                    if referrer.referrals_count % 10 == 0:
+                        referrer.premium_until = datetime.utcnow() + timedelta(days=7)
+                    session.merge(referrer)
+
+            session.commit()
 
         await send_message(chat_id, "Дякую! Твоя анкета збережена.")
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
@@ -186,6 +192,7 @@ async def send_message(chat_id: int, text: str, reply_markup: dict = None):
         payload["reply_markup"] = reply_markup
     async with httpx.AsyncClient() as client:
         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
+
 
 async def send_photo(chat_id: int, file_id: str, caption: str):
     payload = {"chat_id": chat_id, "photo": file_id, "caption": caption}
