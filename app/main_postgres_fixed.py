@@ -155,22 +155,21 @@ with SessionLocal() as session:
         city=data["city"],
         bio=data["bio"],
         photo_file_id=data["photo_file_id"],
-        language="uk"
+        language="uk",
+        referrer_id=referrer_id
     )
     session.merge(user)
-    session.commit()
 
-            # Нарахування преміуму рефереру
-            if referrer_id:
-                count = session.query(User).filter_by(referrer_id=referrer_id).count()
-                if count % 10 == 0:
-                    ref_user = session.query(User).filter_by(telegram_id=referrer_id).first()
-                    if ref_user:
-                        if ref_user.premium_until and ref_user.premium_until > datetime.utcnow():
-                            ref_user.premium_until += timedelta(days=7)
-                        else:
-                            ref_user.premium_until = datetime.utcnow() + timedelta(days=7)
-                        session.commit()
+    # Нарахування преміуму рефереру
+    if referrer_id:
+        referrer = session.query(User).filter_by(telegram_id=referrer_id).first()
+        if referrer:
+            referrer.referrals_count += 1
+            if referrer.referrals_count % 10 == 0:
+                referrer.premium_until = datetime.utcnow() + timedelta(days=7)
+            session.merge(referrer)
+
+    session.commit()
 
         await send_message(chat_id, "Дякую! Твоя анкета збережена.")
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
