@@ -147,19 +147,18 @@ async def telegram_webhook(request: Request):
         referrer_id = user_states.get(chat_id, {}).get("referrer_id")
 
         with SessionLocal() as session:
-            user = User(
-                telegram_id=chat_id,
-                name=data["name"],
-                age=data["age"],
-                gender=data["gender"],
-                city=data["city"],
-                bio=data["bio"],
-                photo_file_id=file_id,
-                language="uk",
-                referrer_id=referrer_id
-            )
-            session.merge(user)
-            session.commit()
+    user = User(
+    telegram_id=chat_id,
+    name=data["name"],
+    age=data["age"],
+    gender=data["gender"],
+    city=data["city"],
+    bio=data["bio"],
+    photo_file_id=data["photo_file_id"],
+    language="uk"
+)
+session.merge(user)
+session.commit()
 
             # Нарахування преміуму рефереру
             if referrer_id:
