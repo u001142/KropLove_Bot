@@ -51,71 +51,94 @@ async def telegram_webhook(request: Request):
     text = message.get("text")
     photo = message.get("photo")
 
-    if user_states.get(chat_id, {}).get("state") == "done":
-        return {"ok": True}
+    # ======= АДМІН-МЕНЮ =======
 
-    # ======= МЕНЮ КОРИСТУВАЧА =======
+    if chat_id in ADMINS:
+        admin_state = admin_states.get(chat_id)
+
+        if text == "/admin":
+            keyboard = {
+                "keyboard": [[
+                    {"text": "🧾 Перелік анкет"},
+                    {"text": "❌ Видалити анкету"}
+                ], [
+                    {"text": "📢 Розсилка"}
+                ]],
+                "resize_keyboard": True
+            }
+            await send_message(chat_id, "Вибери дію:", keyboard)
+            return {"ok": True}
+
+        if text == "🧾 Перелік анкет":
+            with SessionLocal() as session:
+                users = session.query(User).order_by(User.id.desc()).limit(10).all()
+                if not users:
+                    await send_message(chat_id, "База порожня.")
+                else:
+                    for user in users:
+                        await send_message(chat_id, f"{user.name}, {user.age} років, {user.city}\nTelegram ID: {user.telegram_id}")
+            return {"ok": True}
+
+        if text == "❌ Видалити анкету":
+            admin_states[chat_id] = "awaiting_delete"
+            await send_message(chat_id, "Введи telegram_id користувача для видалення:")
+            return {"ok": True}
+
+        if admin_state == "awaiting_delete":
+            if not text.isdigit():
+                await send_message(chat_id, "❗ Введи правильний telegram_id")
+                return {"ok": True}
+            target_id = int(text)
+            with SessionLocal() as session:
+                user = session.query(User).filter_by(telegram_id=target_id).first()
+                if not user:
+                    await send_message(chat_id, "Користувача не знайдено.")
+                else:
+                    session.delete(user)
+                    session.commit()
+                    await send_message(chat_id, f"✅ Користувача {target_id} видалено.")
+            admin_states[chat_id] = None
+            return {"ok": True}
+
+        if text == "📢 Розсилка":
+            admin_states[chat_id] = "awaiting_broadcast"
+            await send_message(chat_id, "Введи текст розсилки:")
+            return {"ok": True}
+
+        if admin_state == "awaiting_broadcast":
+            with SessionLocal() as session:
+                users = session.query(User).all()
+                for user in users:
+                    try:
+                        await send_message(user.telegram_id, text)
+                    except Exception:
+                        continue
+            await send_message(chat_id, "✅ Повідомлення надіслано всім користувачам.")
+            admin_states[chat_id] = None
+            return {"ok": True}
+
+    # ======= КІНЕЦЬ АДМІН-МЕНЮ =======
+
+    state = user_states.get(chat_id, {}).get("state")
+
     if text == "/start":
-        keyboard = {
-            "keyboard": [[
-                {"text": "Моя анкета"},
-                {"text": "Редагувати анкету"}
-            ], [
-                {"text": "Перегляд анкет"},
-                {"text": "Хто мене лайкнув"}
-            ], [
-                {"text": "Почати чат"},
-                {"text": "Зупинити чат"}
-            ], [
-                {"text": "Отримати преміум"},
-                {"text": "Допомога"}
-            ]],
-            "resize_keyboard": True
-        }
-        await send_message(chat_id, "Вітаю! Вибери дію:", keyboard)
+        user_states[chat_id] = {"lang": "uk", "state": "awaiting_name"}
+        await send_message(chat_id, "Привіт! Давай створимо твою анкету.")
+        await send_message(chat_id, "Як тебе звати?")
         return {"ok": True}
 
-    if text == "Моя анкета":
+    if text == "/edit":
         with SessionLocal() as session:
             user = session.query(User).filter_by(telegram_id=chat_id).first()
-            if not user:
-                await send_message(chat_id, "Анкету не знайдено. Створи її через /start")
-            else:
-                caption = f"{user.name}, {user.age} років\n{user.city}\n{user.bio}"
-                await send_photo(chat_id, user.photo_file_id, caption)
-        return {"ok": True}
 
-    if text == "Редагувати анкету":
-        user_states[chat_id] = {"state": "awaiting_name"}
-        await send_message(chat_id, "Добре, почнемо редагування. Як тебе звати?")
-        return {"ok": True}
+        if not user:
+            await send_message(chat_id, "Твоєї анкети ще немає. Спочатку створи її через /start.")
+            return {"ok": True}
 
-    if text == "Перегляд анкет":
-        await send_message(chat_id, "Ця функція в процесі розробки...")
+        user_states[chat_id] = {"lang": user.language, "state": "awaiting_name"}
+        await send_message(chat_id, "Добре, почнемо редагування анкети.")
+        await send_message(chat_id, "Як тебе звати?")
         return {"ok": True}
-
-    if text == "Хто мене лайкнув":
-        await send_message(chat_id, "Ця функція доступна лише для преміум користувачів.")
-        return {"ok": True}
-
-    if text == "Почати чат":
-        await send_message(chat_id, "Пошук співрозмовника... (ще не реалізовано)")
-        return {"ok": True}
-
-    if text == "Зупинити чат":
-        await send_message(chat_id, "Чат зупинено. (ще не реалізовано)")
-        return {"ok": True}
-
-    if text == "Отримати преміум":
-        await send_message(chat_id, "Щоб отримати преміум, запроси 10 друзів або звернись до підтримки.")
-        return {"ok": True}
-
-    if text == "Допомога":
-        await send_message(chat_id, "Я — бот для знайомств. Натискай кнопки нижче, щоб користуватись сервісом.")
-        return {"ok": True}
-
-    # ======= АНКЕТА =======
-    state = user_states.get(chat_id, {}).get("state")
 
     if not text and state != "awaiting_photo":
         await send_message(chat_id, "Будь ласка, введи текст.")
@@ -124,7 +147,8 @@ async def telegram_webhook(request: Request):
     if state == "awaiting_name":
         user_states[chat_id]["name"] = text
         user_states[chat_id]["state"] = "awaiting_age"
-        await send_message(chat_id, f"Дякую, {text}! Твоє ім’я збережено.\nСкільки тобі років?")
+        await send_message(chat_id, f"Дякую, {text}! Твоє ім'я збережено.")
+        await send_message(chat_id, "Скільки тобі років?")
         return {"ok": True}
 
     if state == "awaiting_age":
@@ -168,63 +192,38 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
         largest = max(photo, key=lambda x: x["file_size"])
         file_id = largest["file_id"]
-        data = user_states[chat_id]
+        user_states[chat_id]["photo_file_id"] = file_id
+        user_states[chat_id]["state"] = "done"
 
-        is_update = save_or_update_user(
+        data = user_states[chat_id]
+        user = User(
             telegram_id=chat_id,
             name=data["name"],
             age=data["age"],
             gender=data["gender"],
             city=data["city"],
             bio=data["bio"],
-            photo_file_id=file_id,
+            photo_file_id=data["photo_file_id"],
             language="uk"
         )
+        with SessionLocal() as session:
+            session.merge(user)
+            session.commit()
 
         caption = f"{data['name']}, {data['age']} років\n{data['city']}\n{data['bio']}"
         await send_photo(chat_id, file_id, caption)
-        await send_message(chat_id, "Анкета оновлена." if is_update else "Анкета створена.")
-        user_states[chat_id] = {"state": "done"}
-        return {"ok": True}
 
-    await send_message(chat_id, "Натисни /start, щоб почати спочатку.")
-    return {"ok": True}
-
-def save_or_update_user(telegram_id, name, age, gender, city, bio, photo_file_id, language):
-    with SessionLocal() as session:
-        user = session.query(User).filter_by(telegram_id=telegram_id).first()
-        is_update = bool(user)
-        if user:
-            user.name = name
-            user.age = age
-            user.gender = gender
-            user.city = city
-            user.bio = bio
-            user.photo_file_id = photo_file_id
-            user.language = language
+        # показати меню для адміна
+        if chat_id in ADMINS:
+            keyboard = {
+                "keyboard": [[
+                    {"text": "🧾 Перелік анкет"},
+                    {"text": "❌ Видалити анкету"}
+                ], [
+                    {"text": "📢 Розсилка"}
+                ]],
+                "resize_keyboard": True
+            }
+            await send_message(chat_id, "Анкета оновлена. Обери дію:", keyboard)
         else:
-            user = User(
-                telegram_id=telegram_id,
-                name=name,
-                age=age,
-                gender=gender,
-                city=city,
-                bio=bio,
-                photo_file_id=photo_file_id,
-                language=language
-            )
-            session.add(user)
-        session.commit()
-        return is_update
-
-async def send_message(chat_id: int, text: str, reply_markup: dict = None):
-    payload = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    async with httpx.AsyncClient() as client:
-        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload)
-
-async def send_photo(chat_id: int, file_id: str, caption: str):
-    payload = {"chat_id": chat_id, "photo": file_id, "caption": caption}
-    async with httpx.AsyncClient() as client:
-        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", json=payload)
+            await send_message(chat_id, "
