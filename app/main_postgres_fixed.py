@@ -78,7 +78,7 @@ async def telegram_webhook(request: Request):
                     )  
         return {"ok": True}  
   
-    if text.startswith("/delete"):  
+    if text and text.startswith("/delete"): 
         if chat_id not in ADMINS:  
             await send_message(chat_id, "⛔️ У вас немає доступу.")  
             return {"ok": True}  
@@ -97,7 +97,7 @@ async def telegram_webhook(request: Request):
                 await send_message(chat_id, f"✅ Користувача {target_id} видалено.")  
         return {"ok": True}  
   
-    if text.startswith("/broadcast"):  
+    if text and text.startswith("/broadcast"):
         if chat_id not in ADMINS:  
             await send_message(chat_id, "⛔️ У вас немає доступу.")  
             return {"ok": True}  
